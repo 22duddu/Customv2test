@@ -10,8 +10,26 @@ from config import *
 from helper_func import encode, admin
 
 @Bot.on_message(filters.private & admin & ~filters.command(['start', 'commands','users','broadcast','batch', 'custom_batch', 'genlink','stats', 'dlt_time', 'check_dlt_time', 'ban', 'unban', 'banlist', 'addchnl', 'delchnl', 'listchnl', 'fsub_mode', 'add_admin', 'deladmin', 'admins', 'delreq', 'cancel', 'setfile', 'listfile', 'delfile', 'update']))
-async def channel_post(client: Client, message: Message):
-    return
+async def send_saved_file(client: Bot, message: Message):
+    text = message.text.strip()
+    if not text.isdigit():
+        return
+
+    data = await db.get_file(text)
+    if not data:
+        return #await message.reply_text("❌ No file set for this number.")
+
+    try:
+        await client.copy_message(
+            chat_id=message.chat.id,
+            from_chat_id=data["chat_id"],
+            message_id=data["file_id"]
+        )
+    except Exception as e:
+        await message.reply_text(f"⚠️ Failed to send file:\n`{e}`")
+
+#async def channel_post(client: Client, message: Message):
+    #return
 
     """reply_text = await message.reply_text("Please Wait...!", quote = True)
     try:
