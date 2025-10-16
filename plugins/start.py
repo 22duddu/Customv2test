@@ -15,7 +15,7 @@ import os
 import random
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pyrogram import Client, filters, __version__
 from pyrogram.enums import ParseMode, ChatAction
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, ChatInviteLink, ChatPrivileges
@@ -158,9 +158,9 @@ async def start_command(client: Client, message: Message):
 # Don't Remove Credit @CodeFlix_Bots, @rohit_1888
 # Ask Doubt on telegram @CodeflixSupport
 
+# Indian timezone (UTC+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
 
-
-# Create a global dictionary to store chat data
 chat_data_cache = {}
 
 async def not_joined(client: Client, message: Message):
@@ -188,22 +188,29 @@ async def not_joined(client: Client, message: Message):
 
                     name = data.title
 
+                    # Indian time now
+                    now_ist = datetime.now(IST)
+
                     # Generate proper invite link based on the mode
                     if mode == "on" and not data.username:
                         invite = await client.create_chat_invite_link(
                             chat_id=chat_id,
                             creates_join_request=True,
-                            expire_date=datetime.utcnow() + timedelta(seconds=FSUB_LINK_EXPIRY) if FSUB_LINK_EXPIRY else None
-                            )
+                            expire_date=(
+                                now_ist + timedelta(seconds=FSUB_LINK_EXPIRY)
+                            ) if FSUB_LINK_EXPIRY else None
+                        )
                         link = invite.invite_link
-
                     else:
                         if data.username:
                             link = f"https://t.me/{data.username}"
                         else:
                             invite = await client.create_chat_invite_link(
                                 chat_id=chat_id,
-                                expire_date=datetime.utcnow() + timedelta(seconds=FSUB_LINK_EXPIRY) if FSUB_LINK_EXPIRY else None)
+                                expire_date=(
+                                    now_ist + timedelta(seconds=FSUB_LINK_EXPIRY)
+                                ) if FSUB_LINK_EXPIRY else None
+                            )
                             link = invite.invite_link
 
                     buttons.append([InlineKeyboardButton(text=name, url=link)])
