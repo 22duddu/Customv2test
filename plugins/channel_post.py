@@ -10,7 +10,7 @@ from bot import Bot
 from config import *
 from helper_func import *
 
-@Bot.on_message(filters.private & admin & ~filters.command(['start', 'commands','users','broadcast','batch', 'custom_batch', 'genlink','stats', 'dlt_time', 'check_dlt_time', 'ban', 'unban', 'banlist', 'addchnl', 'delchnl', 'listchnl', 'fsub_mode', 'add_admin', 'deladmin', 'admins', 'delreq', 'cancel', 'setfile', 'listfile', 'delfile', 'update']))
+@Bot.on_message(filters.private & admin & ~filters.command(['start', 'commands','users','broadcast','batch', 'custom_batch', 'genlink','stats', 'dlt_time', 'check_dlt_time', 'ban', 'unban', 'banlist', 'addchnl', 'delchnl', 'listchnl', 'fsub_mode', 'add_admin', 'deladmin', 'admins', 'delreq', 'cancel', 'setfile', 'listfile', 'delfile', 'update', 'batchfile']))
 async def send_saved_file(client: Bot, message: Message):
     text = message.text.strip()
     if text.startswith("/"):
