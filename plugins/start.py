@@ -159,57 +159,59 @@ async def start_command(client: Client, message: Message):
 # Ask Doubt on telegram @CodeflixSupport
 
 # Indian timezone (UTC+5:30)
-IST = timezone(timedelta(hours=5, minutes=30))
+from datetime import datetime, timedelta, timezone
 
+IST = timezone(timedelta(hours=5, minutes=30))
 chat_data_cache = {}
 
 async def not_joined(client: Client, message: Message):
     temp = await message.reply("<b><i>ᴡᴀɪᴛ ᴀ sᴇᴄ..</i></b>")
-
     user_id = message.from_user.id
     buttons = []
     count = 0
 
     try:
-        all_channels = await db.show_channels()  # Should return list of (chat_id, mode) tuples
-        for total, chat_id in enumerate(all_channels, start=1):
-            mode = await db.get_channel_mode(chat_id)  # fetch mode 
+        all_channels = await db.show_channels() or []
+        if not all_channels:
+            return await temp.edit("<b>No channels configured.</b>")
 
+        for total, chat_id in enumerate(all_channels, start=1):
+            if not chat_id:
+                continue
+
+            mode = await db.get_channel_mode(chat_id) or "off"
             await message.reply_chat_action(ChatAction.TYPING)
 
             if not await is_sub(client, user_id, chat_id):
                 try:
-                    # Cache chat info
                     if chat_id in chat_data_cache:
                         data = chat_data_cache[chat_id]
                     else:
                         data = await client.get_chat(chat_id)
                         chat_data_cache[chat_id] = data
 
-                    name = data.title
+                    if not data:
+                        continue
 
-                    # Indian time now
+                    name = getattr(data, "title", "Unknown Group")
                     now_ist = datetime.now(IST)
 
-                    # Generate proper invite link based on the mode
-                    if mode == "on" and not data.username:
+                    if mode == "on" and not getattr(data, "username", None):
                         invite = await client.create_chat_invite_link(
                             chat_id=chat_id,
                             creates_join_request=True,
-                            expire_date=(
-                                now_ist + timedelta(seconds=FSUB_LINK_EXPIRY)
-                            ) if FSUB_LINK_EXPIRY else None
+                            expire_date=(now_ist + timedelta(seconds=FSUB_LINK_EXPIRY))
+                            if FSUB_LINK_EXPIRY else None
                         )
                         link = invite.invite_link
                     else:
-                        if data.username:
+                        if getattr(data, "username", None):
                             link = f"https://t.me/{data.username}"
                         else:
                             invite = await client.create_chat_invite_link(
                                 chat_id=chat_id,
-                                expire_date=(
-                                    now_ist + timedelta(seconds=FSUB_LINK_EXPIRY)
-                                ) if FSUB_LINK_EXPIRY else None
+                                expire_date=(now_ist + timedelta(seconds=FSUB_LINK_EXPIRY))
+                                if FSUB_LINK_EXPIRY else None
                             )
                             link = invite.invite_link
 
@@ -224,24 +226,22 @@ async def not_joined(client: Client, message: Message):
                         f"<blockquote expandable><b>Rᴇᴀsᴏɴ:</b> {e}</blockquote>"
                     )
 
-        # Retry Button
-        try:
+        # Retry Button (safe)
+        if len(message.command) > 1:
             buttons.append([
                 InlineKeyboardButton(
                     text='♻️ Tʀʏ Aɢᴀɪɴ',
                     url=f"https://t.me/{client.username}?start={message.command[1]}"
                 )
             ])
-        except IndexError:
-            pass
 
         await message.reply_photo(
             photo=FORCE_PIC,
             caption=FORCE_MSG.format(
-                first=message.from_user.first_name,
-                last=message.from_user.last_name,
-                username=None if not message.from_user.username else '@' + message.from_user.username,
-                mention=message.from_user.mention,
+                first=message.from_user.first_name or "",
+                last=message.from_user.last_name or "",
+                username=('@' + message.from_user.username) if message.from_user.username else None,
+                mention=message.from_user.mention or "",
                 id=message.from_user.id
             ),
             reply_markup=InlineKeyboardMarkup(buttons),
