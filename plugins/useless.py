@@ -244,6 +244,49 @@ async def set_files_batch(client: Bot, message: Message):
         if user_msg.text and user_msg.text.strip().upper() == "STOP":
             break
 
+        # Check if user provided a forwarded/channel post (channel batch mode)
+        f_msg_id = await get_message_id(client, user_msg)
+        if f_msg_id:
+            # Ask for the last message in the range
+            try:
+                snd = await client.ask(
+                    chat_id=message.chat.id,
+                    text=f"Forward the LAST message from <a href='{client.db_channel.invite_link}'>DB Channel</a> or send its post link.",
+                    timeout=60,
+                    disable_web_page_preview=True
+                )
+            except Exception:
+                await message.reply("❌ Timeout while waiting for the last message.")
+                break
+
+            s_msg_id = await get_message_id(client, snd)
+            if not s_msg_id:
+                await snd.reply("❌ That message isn't from the DB channel. Operation cancelled.")
+                break
+
+            # Normalize range
+            start = min(f_msg_id, s_msg_id)
+            end = max(f_msg_id, s_msg_id)
+
+            # Safety limit
+            MAX_RANGE = 2000
+            if end - start + 1 > MAX_RANGE:
+                return await message.reply(f"❌ Range too large ({end-start+1} messages). Please limit to {MAX_RANGE} messages.")
+
+            msg_ids = list(range(start, end + 1))
+            # Fetch messages from the DB channel
+            msgs = await get_messages(client, msg_ids)
+
+            total_added = 0
+            for m in msgs:
+                fids = _extract_file_ids(m)
+                for fid in fids:
+                    await db.add_file_to_key(key, client.db_channel.id, fid)
+                    total_added += 1
+
+            await message.reply(f"✅ Stored {total_added} files from channel posts under key `{key}` successfully.")
+            return
+
         # Prepare per-user cache directory
         cache_dir = os.path.join("cache", str(message.chat.id), str(user_msg.from_user.id))
         os.makedirs(cache_dir, exist_ok=True)
@@ -368,16 +411,15 @@ async def set_files_batch(client: Bot, message: Message):
 
     await message.reply(f"✅ All {len(collected)} files stored under key `{key}` successfully.")
 
+    # Cleanup cached files
+    for path in cached_files:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+
     await message.reply("✅ Collection finished.", reply_markup=ReplyKeyboardRemove())
-
-    if not collected:
-        return await message.reply("❌ No valid media messages were added.")
-
-    # Store all collected file_ids under key
-    for chat_id, fid in collected:
-        await db.add_file_to_key(key, chat_id, fid)
-
-    await message.reply(f"✅ All {len(collected)} files stored under key `{key}` successfully.")
 
 # =========================
 
