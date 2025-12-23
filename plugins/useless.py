@@ -97,22 +97,31 @@ async def check_delete_time(client: Bot, message: Message):
 def _extract_file_ids(msg: Message):
     """Return a list of file_id(s) from supported media in a message."""
     ids = []
+
     if msg.document:
         ids.append(msg.document.file_id)
+
     if msg.video:
         ids.append(msg.video.file_id)
+
     if msg.audio:
         ids.append(msg.audio.file_id)
+
     if msg.photo:
-        ids.append(msg.photo[-1].file_id)
+        ids.append(msg.photo.file_id)
+
     if msg.voice:
         ids.append(msg.voice.file_id)
+
     if msg.video_note:
         ids.append(msg.video_note.file_id)
+
     if msg.animation:
         ids.append(msg.animation.file_id)
+
     if msg.sticker:
         ids.append(msg.sticker.file_id)
+
     return ids
 
 
