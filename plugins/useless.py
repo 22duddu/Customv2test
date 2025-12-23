@@ -219,6 +219,7 @@ async def set_files_batch(client: Bot, message: Message):
             return await message.reply_text("❌ Invalid duration. Provide time in seconds as a positive integer.")
 
     collected = []
+    cached_files = []  # keep track of downloaded cache paths to clean up later
     STOP_KEYBOARD = ReplyKeyboardMarkup([["STOP"]], resize_keyboard=True)
 
     await message.reply(
@@ -243,29 +244,82 @@ async def set_files_batch(client: Bot, message: Message):
         if user_msg.text and user_msg.text.strip().upper() == "STOP":
             break
 
-        # Extract file ids (supports media groups by capturing each message)
-        file_ids = _extract_file_ids(user_msg)
+        # Prepare per-user cache directory
+        cache_dir = os.path.join("cache", str(message.chat.id), str(user_msg.from_user.id))
+        os.makedirs(cache_dir, exist_ok=True)
 
-        # If this message is part of a media group, fetch the full album reliably
+        # Collect messages (single or media group) and also catch quick additional single media messages
+        msgs = []
         if user_msg.media_group_id:
             try:
                 msgs = await client.get_media_group(chat_id=message.chat.id, message_id=user_msg.id)
             except Exception:
-                # fallback: include only the received message
                 msgs = [user_msg]
+        else:
+            msgs = [user_msg]
+            # short buffer window to catch more media messages sent quickly
+            try:
+                while True:
+                    nxt = await asyncio.wait_for(client.listen(chat_id=message.chat.id, user_id=user_msg.from_user.id), timeout=1.0)
+                    # if it's part of a different media group, fetch the whole group
+                    if getattr(nxt, "media_group_id", None):
+                        try:
+                            grp = await client.get_media_group(chat_id=message.chat.id, message_id=nxt.id)
+                            msgs.extend(grp)
+                        except Exception:
+                            msgs.append(nxt)
+                    elif (nxt.video or nxt.document or nxt.photo or nxt.audio or nxt.voice or nxt.animation):
+                        msgs.append(nxt)
+                    else:
+                        # not a media message -> push back and stop buffering
+                        client._queue[message.chat.id].put_nowait(nxt)
+                        break
+            except asyncio.TimeoutError:
+                pass
 
-            file_ids = []
-            for m in msgs:
-                file_ids.extend(_extract_file_ids(m))
+        # Process collected msgs and download supported media into cache
+        batch_added = 0
+        for m in msgs:
+            fids = _extract_file_ids(m)
+            if not fids:
+                continue
 
-        if not file_ids:
+            # Try to download the message media into cache (filename prefix ensures uniqueness)
+            try:
+                saved = await client.download_media(m, file_name=os.path.join(cache_dir, f"{user_msg.from_user.id}_{m.message_id}"))
+                if saved:
+                    cached_files.append(saved)
+            except Exception:
+                saved = None
+
+            for fid in fids:
+                collected.append((message.chat.id, fid))
+                batch_added += 1
+
+        if batch_added == 0:
             await message.reply("❌ Unsupported message type, ignored.")
             continue
 
-        for fid in file_ids:
-            collected.append((message.chat.id, fid))
-
         await message.reply(f"✅ Added ({len(collected)} total)")
+
+    await message.reply("✅ Collection finished.", reply_markup=ReplyKeyboardRemove())
+
+    if not collected:
+        return await message.reply("❌ No valid media messages were added.")
+
+    # Store all collected file_ids under key
+    for chat_id, fid in collected:
+        await db.add_file_to_key(key, chat_id, fid)
+
+    # Cleanup cached files
+    for path in cached_files:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+
+    await message.reply(f"✅ All {len(collected)} files stored under key `{key}` successfully.")
 
     await message.reply("✅ Collection finished.", reply_markup=ReplyKeyboardRemove())
 
