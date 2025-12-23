@@ -257,12 +257,20 @@ async def set_files_batch(client: Bot, message: Message):
                 msgs = [user_msg]
         else:
             msgs = [user_msg]
-            # short buffer window to catch more media messages sent quickly
+
+            # Buffer window to catch more media messages sent quickly (increase to 2s)
+            BUFFER_WINDOW = 2.0
+            buffer_deadline = time.time() + BUFFER_WINDOW
+
             try:
                 while True:
-                    nxt = await asyncio.wait_for(client.listen(chat_id=message.chat.id), timeout=1.0)
+                    timeout = buffer_deadline - time.time()
+                    if timeout <= 0:
+                        break
 
-                    # If message is from another user, push back and keep waiting
+                    nxt = await asyncio.wait_for(client.listen(chat_id=message.chat.id), timeout=timeout)
+
+                    # Only accept messages from the same sender; push back others
                     if not nxt.from_user or nxt.from_user.id != user_msg.from_user.id:
                         try:
                             client._queue[message.chat.id].put_nowait(nxt)
@@ -270,7 +278,7 @@ async def set_files_batch(client: Bot, message: Message):
                             pass
                         continue
 
-                    # if it's part of a different media group, fetch the whole group
+                    # if it's part of a media group, fetch the whole group
                     if getattr(nxt, "media_group_id", None):
                         try:
                             grp = await client.get_media_group(chat_id=message.chat.id, message_id=nxt.id)
@@ -280,14 +288,41 @@ async def set_files_batch(client: Bot, message: Message):
                     elif (nxt.video or nxt.document or nxt.photo or nxt.audio or nxt.voice or nxt.animation):
                         msgs.append(nxt)
                     else:
-                        # not a media message -> push back and stop buffering
+                        # non-media message from same user -> push back and continue listening
                         try:
                             client._queue[message.chat.id].put_nowait(nxt)
                         except Exception:
                             pass
-                        break
+                        continue
             except asyncio.TimeoutError:
                 pass
+
+            # Fallback: scan recent chat history for any missing quick messages by the same user
+            try:
+                history = await client.get_chat_history(chat_id=message.chat.id, limit=50)
+            except Exception:
+                history = []
+
+            for m in history:
+                if m.message_id <= user_msg.message_id:
+                    continue
+                if not m.from_user or m.from_user.id != user_msg.from_user.id:
+                    continue
+                # If message already collected, skip
+                if any(getattr(x, 'message_id', None) == m.message_id for x in msgs):
+                    continue
+
+                if getattr(m, "media_group_id", None):
+                    try:
+                        grp = await client.get_media_group(chat_id=message.chat.id, message_id=m.id)
+                        for gm in grp:
+                            if not any(getattr(x, 'message_id', None) == gm.message_id for x in msgs):
+                                msgs.append(gm)
+                    except Exception:
+                        if (m.video or m.document or m.photo or m.audio or m.voice or m.animation):
+                            msgs.append(m)
+                elif (m.video or m.document or m.photo or m.audio or m.voice or m.animation):
+                    msgs.append(m)
 
         # Process collected msgs and download supported media into cache
         batch_added = 0
